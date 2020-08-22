@@ -1,16 +1,30 @@
 const https = require("https");
 const discord = require('discord.js');
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 const client = new discord.Client();
 const apiKey = process.env.apiKey;
 const discordToken = process.env.discordToken;
 const commandPrefix = process.env.commandPrefix
 const {Pool} = require('pg')
+var string = process.env.DATABASE_URL;
+var string = string.substring("postgres://".length)
+var username = string.substring(string.search(":"),-1)
+var string = string.substring(string.search(":")+1)
+var password = string.substring(string.search('@'), -1);
+var string = string.substring(string.search("@")+1);
+var host = string.substring(string.search(":"), -1);
+var string = string.substring(string.search(":")+1);
+var port = string.substring(string.search("/"), -1);
+var string = string.substring(string.search("/")+1);
+var database = string;
 loginDetails = {
-  user: process.env.user,
-  host: process.env.host,
-  database: process.env.database,
-  password: process.env.password,
-  port: process.env.dbport,
+  user: username,
+  host: host,
+  database: database,
+  password: password,
+  port: port,
   ssl: {
     rejectUnauthorized: false
   }
@@ -18,13 +32,13 @@ loginDetails = {
 const dbs = new Pool(loginDetails)
 db = {
   profiles: [],
-  users: []
+  users: [],
+  guilds: []
 }
 async function test() {
-  console.table((await dbs.query('select * from public."Profiles"')).rows)
   db.profiles = (await dbs.query('select * from public."Profiles"')).rows;
   db.users = (await dbs.query('select * from public."Users"')).rows;
-  console.log(db.profiles);
+  db.guilds = (await dbs.query('select * from public."Guilds"')).rows;
 }
 test();
 function getName(uuid) {
@@ -47,7 +61,6 @@ function getName(uuid) {
       //the whole response has been received, so we just print it out here
       response.on('end', function () {
         //var info = JSON.parse(str);
-        console.log(str)
         resolve(JSON.parse(str).name);
       });
     })
@@ -87,7 +100,8 @@ function newProfile(id) {
   var profile = {
     id: id,
     members: [],
-    lastUpdate: 0
+    lastUpdate: 0,
+    total: 0
   }
   addMember(profile,"Bank Interest");
   return profile;
@@ -155,7 +169,7 @@ function checkMembers(profile, profileData) {
     }
     resolve(profile)
     return profile;
-  }
+  })
 }
 function updateTransactions(profile, profileData) {
   return new Promise(async (resolve, reject) => {
@@ -194,15 +208,16 @@ function updateTransactions(profile, profileData) {
       }
     }
     profile.lastUpdate = newestTimeStamp;
+    profile.total = profileData.banking.balance;
     resolve(profile)
     return profile;
-  }
+  })
 }
 function checkProfile(i) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise(async (resolve, reject) => {``
     var profile = db.profiles[i];
     var res = await getProfile(profile.id);
-    if (res && res.success) {
+    if (!res || !res.success) {
       resolve(true)
       return true;
     } else if (res.profile == null) {
@@ -218,11 +233,12 @@ function checkProfile(i) {
     }
     profile = result;
     db.profiles[iter] = profile;
-    await dbs.query('insert into public."Profiles" (id, members) values ($1, $2) ON CONFLICT (id) DO UPDATE SET members=$2',[profile.id,profile.members])
+    await dbs.query('insert into public."Profiles" (id, members, "lastUpdate", total) values ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET members=$2, "lastUpdate"=$3, total=$4',
+    [profile.id,profile.members,profile.lastUpdate, profile.total])
     console.log(profile);
     resolve(true);
     return true;
-  }
+  })
 }
 function updateLoop() {
   return new Promise(async (resolve, reject) => {
@@ -239,6 +255,7 @@ function updateLoop() {
     resolve()
   })
 }
+updateLoop();
 setInterval(updateLoop, 30000);
 function getProfiles(uuid) {
   return new Promise((resolve, reject) => {
@@ -301,140 +318,204 @@ function getUser(id) {
   }
   return null
 }
+function getGuildPrefix(id) {
+  for (i in db.guilds) {
+    if (db.guilds[i].id == id) {
+      return db.guilds[i].prefix;
+    }
+  }
+  console.log('default')
+  console.log(db.guilds[i])
+  return commandPrefix
+}
 client.on('ready', () => {
   console.log('Ready to go!');
 });
 client.on('message', async msg => {
+  if (msg.author.bot) return;
   var message = msg.content.toLowerCase();
-  if (message.startsWith(commandPrefix)) {
-    var command = message.substring(commandPrefix.length).split(' ')
-    if (command[0] == 'link') {
-      var res = await getUUID(command[1]);
-      if(res.length == 0 || res[0].id == null) {
-        msg.channel.send('Invalid name!')
-        return;
-      }
-      res = await getProfiles(res[0].id);
-      if (!res.success) {
-        msg.channel.send('Not a hypixel user!')
-        return;
-      }
-      const user = {
-        discordid: msg.author.id,
-        profiles: []
-      }
-      var text = ""
-      for (i in res.profiles) {
-        const profile = {
-          id: res.profiles[i].profile_id,
-          name: res.profiles[i].cute_name.toLowerCase()
-        };
-        user.profiles.push(profile)
-        if (text == "") {
-          text = res.profiles[i].cute_name
-        } else {
-          text += ", " + res.profiles[i].cute_name
-        }
-      }
-      db.users = db.users.filter(user => user.discordid != msg.author.id)
-      db.users.push(user);
-      console.log(user)
-      await dbs.query('insert into public."Users" (discordid, profiles) values ($1, $2) ON CONFLICT (discordid) DO UPDATE SET profiles=$2',[user.discordid, user.profiles])
-      msg.channel.send("Success! Available profiles: " + text)
-    } else if(command[0] == "get") {
-      var user = getUser(msg.author.id);
-      console.log(user)
-      if (user && user.discordid) {
-        var profile = ''
-        for (i in user.profiles) {
-          if (command.length >= 2 && user.profiles[i].name == command[1].toLowerCase()) {
-            profile = user.profiles[i].id
-            break
-          }
-        }
-        if (profile != '') {
-          var data = '';
-          for (i in db.profiles) {
-            if (db.profiles[i].id == profile) {
-              data = db.profiles[i]
-              break
-            }
-          }
-          if (data != '') {
-            text = ''
-            for (i in data.members) {
-              if (text == '') {
-                text = data.members[i].name + ": " + data.members[i].contribution;
-              } else {
-                text += '\n' + data.members[i].name + ": " + data.members[i].contribution;
-              }
-            }
-            msg.channel.send(text)
-          } else {
-            msg.channel.send('This account is not being tracked!')
-          }
-        } else {
-          var text = ''
-          for (i in user.profiles) {
-            if (text == '') {
-              text = user.profiles[i].name
-            } else {
-              text += ", " + user.profiles[i].name
-            }
-          }
-          msg.channel.send('Invalid profile! Your profiles: ' + text)
-          return;
-        }
+  let pCommandPrefix = commandPrefix;
+  if (msg.channel.type == "dm") {
+    pCommandPrefix = "";
+  } else {
+    pCommandPrefix = getGuildPrefix(msg.channel.guild.id)
+  }
+  if(!message.startsWith(pCommandPrefix)) return;
+  var args = message.substring(pCommandPrefix.length).split(' ');
+  if (args[0] == "link") {
+    let res = await getUUID(args[1]);
+    if (res.length == 0 || res[0].id == null) {
+      msg.channel.send('Invalid name!');
+      return;
+    }
+    res = await getProfiles(res[0].id);
+    if (!res.success) {
+      msg.channel.send('Not a hypixel user!')
+      return;
+    }
+    const user = {
+      discordid: msg.author.id,
+      profiles: []
+    }
+    let text = ""
+    for (i in res.profiles) {
+      const profile = {
+        id: res.profiles[i].profile_id,
+        name: res.profiles[i].cute_name.toLowerCase()
+      };
+      user.profiles.push(profile);
+      if (text == "") {
+        text = res.profiles[i].cute_name
       } else {
-        msg.channel.send('You haven\'t linked your account!')
-        return;
-      }
-    } else if (command[0] == 'track') {
-      var user = getUser(msg.author.id);
-      console.log(user)
-      if (user && user.discordid) {
-        var profile = ''
-        var profilenum = 0
-        for (i in user.profiles) {
-          if (command.length >= 2 && user.profiles[i].name == command[1].toLowerCase()) {
-            profile = user.profiles[i].id
-            profilenum = i;
-            break
-          }
-        }
-        if (profile != '') {
-          var data = '';
-          for (i in db.profiles) {
-            if (db.profiles[i].id == profile) {
-              data = db.profiles[i]
-              break
-            }
-          }
-          if (data == '') {
-            var tempProfile = newProfile(profile);
-            db.profiles.push(tempProfile);
-            await dbs.query('insert into public."Profiles" (id, members) values ($1, $2) ON CONFLICT (id) DO UPDATE SET members=$2',[tempProfile.id,tempProfile.members])
-            msg.channel.send('Now tracking ' + user.profiles[profilenum].name)
-          } else {
-            msg.channel.send('This account is already being tracked!')
-          }
-        } else {
-          var text = ''
-          for (i in user.profiles) {
-            if (text == '') {
-              text = user.profiles[i].name
-            } else {
-              text += ", " + user.profiles[i].name
-            }
-          }
-          msg.channel.send('Invalid profile! Your profiles: ' + text)
-          return;
-        }
-      } else {
-        msg.channel.send('You haven\'t linked your account!')
-        return;
+        text += ", " + res.profiles[i].cute_name
       }
     }
+    db.users = db.users.filter(user => user.discordid != msg.author.id)
+    db.users.push(user);
+    await dbs.query('insert into public."Users" (discordid, profiles) values ($1, $2) ON CONFLICT (discordid) DO UPDATE SET profiles=$2',[user.discordid, user.profiles])
+    msg.channel.send("Success! Available profiles: " + text)
+  } else if(args[0] == "get") {
+    user = getUser(msg.author.id);
+    if (!user || !user.discordid) {
+      msg.channel.send('You haven\'t linked your account!')
+      return;
+    }
+    profile = ''
+    for (i in user.profiles) {
+      if (args.length >= 2 && user.profiles[i].name == args[1].toLowerCase()) {
+        profile = user.profiles[i].id
+        break
+      }
+    }
+    if (profile == '') {
+      let text = ''
+      for (i in user.profiles) {
+        if (text == '') {
+          text = user.profiles[i].name
+        } else {
+          text += ", " + user.profiles[i].name
+        }
+      }
+      msg.channel.send('Invalid profile! Your profiles: ' + text)
+      return;
+    }
+    let data = '';
+    for (i in db.profiles) {
+      if (db.profiles[i].id == profile) {
+        data = db.profiles[i]
+        break
+      }
+    }
+    if (data != '') {
+      let text = ''
+      for (i in data.members) {
+        if (data.members[i].contribution < 0) {
+          text += "-";
+        } else if (data.members[i].contribution > 0) {
+          text += "+"
+        }
+        text += data.members[i].name + ": " + data.members[i].contribution + '\n';
+      }
+      msg.channel.send("```DIFF\n" + text + `total: ${data.total}` + "```")
+    } else {
+      msg.channel.send('This account is not being tracked!')
+    }
+  } else if (args[0] == "track") {
+    user = getUser(msg.author.id);
+    if (!user || !user.discordid) {
+      msg.channel.send('You haven\'t linked your account!')
+      return;
+    }
+    profile = ''
+    let profilenum = 0
+    for (i in user.profiles) {
+      if (args.length >= 2 && user.profiles[i].name == args[1].toLowerCase()) {
+        profile = user.profiles[i].id
+        profilenum = i;
+        break
+      }
+    }
+    if (profile != '') {
+      let data = '';
+      for (i in db.profiles) {
+        if (db.profiles[i].id == profile) {
+          data = db.profiles[i]
+          break
+        }
+      }
+      if (data == '') {
+        let tempProfile = newProfile(profile);
+        db.profiles.push(tempProfile);
+        await dbs.query('insert into public."Profiles" (id, members, "lastUpdate", total) values ($1, $2, $3,$4) ON CONFLICT (id) DO UPDATE SET members=$2, "lastUpdate"=$3, total=$4',
+        [tempProfile.id,tempProfile.members, tempProfile.lastUpdate, tempProfile.total])
+        msg.channel.send('Now tracking ' + user.profiles[profilenum].name)
+      } else {
+        msg.channel.send('This account is already being tracked!')
+      }
+    } else {
+      let text = ''
+      for (i in user.profiles) {
+        if (text == '') {
+          text = user.profiles[i].name
+        } else {
+          text += ", " + user.profiles[i].name
+        }
+      }
+      msg.channel.send('Invalid profile! Your profiles: ' + text)
+      return;
+    }
+  } else if (args[0] == "profiles") {
+    user = getUser(msg.author.id);
+    if (!user || !user.discordid) {
+      msg.channel.send('You haven\'t linked your account!')
+      return;
+    }
+    let text = '';
+    for (i in user.profiles) {
+      if (text == '') {
+        text = user.profiles[i].name
+      } else {
+        text += ", " + user.profiles[i].name
+      }
+    }
+    msg.channel.send("Your profiles: " + text);
+  } else if (args[0] == "setprefix") {
+    if (!msg.member.permissions.has("ADMINISTRATOR")) {
+      msg.channel.send("You don't have permission to do this!");
+      return
+    }
+    if (args.length <= 1) {
+      msg.channel.send("Please provide a prefix!");
+      return;
+    }
+    var guild = {
+      id: msg.channel.guild.id,
+      prefix: args[1]
+    };
+    var exists = false;
+    for (iter in db.guilds) {
+      if (db.guilds[iter].id == guild.id) {
+        db.guilds[iter] = guild;
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      db.guilds.push(guild);
+    }
+    dbs.query('insert into public."Guilds" (id,prefix) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET prefix=$2', [guild.id, guild.prefix])
+    msg.channel.send(`Command prefix set to ${args[1]}`);
+  }else if(args[0] == "help") {
+    msg.channel.send("```help -- lists commands\n" +
+                    "link <username> -- will link your hypixel account to the bot\n" +
+                    "profiles -- lists profiles linked to your account\n" +
+                    "track <profile> -- to start tracking a profile\n" +
+                    "get <profile> -- will return the latest bank stats" +
+                    "setprefix <prefix> -- sets the bot's comamnd prefix" +
+                    "```")
+    return;
+  } else {
+    msg.channel.send(`Invalid command! Run ${pCommandPrefix}help to get a list of commands.`)
   }
 })
 client.login(discordToken)

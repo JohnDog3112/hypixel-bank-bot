@@ -4,12 +4,13 @@
   "description": "",
   "main": "main.js",
   "scripts": {
-    "start":"node main.js"
+    "start": "node main.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "discord.js": "^12.3.0",
+    "dotenv": "^8.2.0",
     "https": "^1.0.0",
     "pg": "^8.3.0"
   }
