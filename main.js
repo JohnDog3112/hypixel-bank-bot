@@ -1,8 +1,10 @@
 const https = require("https");
 const discord = require('discord.js');
+const embedMessage = discord.MessageEmbed;
 if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config();
 }
+var inactiveTime = 604800000;
 const client = new discord.Client();
 const apiKey = process.env.apiKey;
 const discordToken = process.env.discordToken;
@@ -19,6 +21,7 @@ var string = string.substring(string.search(":")+1);
 var port = string.substring(string.search("/"), -1);
 var string = string.substring(string.search("/")+1);
 var database = string;
+var lastUpdate = new Date().getTime()
 loginDetails = {
   user: username,
   host: host,
@@ -157,6 +160,7 @@ function checkMembers(profile, profileData) {
       for (j in profile.members) {
         if (i == profile.members[j].uuid) {
           foundUUID = true;
+          profile.members[j].last_save = profileData.members[i].last_save
           break;
         }
       }
@@ -252,10 +256,10 @@ function updateLoop() {
       await dbs.query('delete from public."Profiles" where id=$1', [db.profiles[profilesToDelete[iter]].id])
       db.profiles.splice(profilesToDelete[iter],1);
     }
+    lastUpdate = new Date().getTime()
     resolve()
   })
 }
-updateLoop();
 setInterval(updateLoop, 30000);
 function getProfiles(uuid) {
   return new Promise((resolve, reject) => {
@@ -328,8 +332,19 @@ function getGuildPrefix(id) {
   console.log(db.guilds[i])
   return commandPrefix
 }
+function errorMsg(msg) {
+  return embed = new embedMessage()
+    .setColor(0xFF0000)
+    .setDescription(msg);
+}
+function successMsg(msg) {
+  return embed = new embedMessage()
+    .setColor(0x00FF00)
+    .setDescription(msg);
+}
 client.on('ready', () => {
   console.log('Ready to go!');
+  client.user.setPresence({ activity: { name: '@ me for help!', type: "LISTENING"}, status: 'online' })
 });
 client.on('message', async msg => {
   if (msg.author.bot) return;
@@ -340,17 +355,24 @@ client.on('message', async msg => {
   } else {
     pCommandPrefix = getGuildPrefix(msg.channel.guild.id)
   }
+  var mentions = Array.from(msg.mentions.users.keys())
+  for (i in mentions) {
+    if (mentions[i] == client.user.id) {
+      message = pCommandPrefix + "help"
+      break;
+    }
+  }
   if(!message.startsWith(pCommandPrefix)) return;
   var args = message.substring(pCommandPrefix.length).split(' ');
   if (args[0] == "link") {
     let res = await getUUID(args[1]);
     if (res.length == 0 || res[0].id == null) {
-      msg.channel.send('Invalid name!');
+      msg.channel.send(errorMsg('Invalid name!'));
       return;
     }
     res = await getProfiles(res[0].id);
     if (!res.success) {
-      msg.channel.send('Not a hypixel user!')
+      msg.channel.send(errorMsg('Not a hypixel user!'))
       return;
     }
     const user = {
@@ -373,11 +395,11 @@ client.on('message', async msg => {
     db.users = db.users.filter(user => user.discordid != msg.author.id)
     db.users.push(user);
     await dbs.query('insert into public."Users" (discordid, profiles) values ($1, $2) ON CONFLICT (discordid) DO UPDATE SET profiles=$2',[user.discordid, user.profiles])
-    msg.channel.send("Success! Available profiles: " + text)
+    msg.channel.send(successMsg("Success! Available profiles: " + text))
   } else if(args[0] == "get") {
     user = getUser(msg.author.id);
     if (!user || !user.discordid) {
-      msg.channel.send('You haven\'t linked your account!')
+      msg.channel.send(errorMsg('You haven\'t linked your account!'))
       return;
     }
     profile = ''
@@ -396,7 +418,7 @@ client.on('message', async msg => {
           text += ", " + user.profiles[i].name
         }
       }
-      msg.channel.send('Invalid profile! Your profiles: ' + text)
+      msg.channel.send(errorMsg('Invalid profile! Your profiles: ' + text))
       return;
     }
     let data = '';
@@ -408,22 +430,26 @@ client.on('message', async msg => {
     }
     if (data != '') {
       let text = ''
+      let time = new Date().getTime()
       for (i in data.members) {
-        if (data.members[i].contribution < 0) {
-          text += "-";
-        } else if (data.members[i].contribution > 0) {
-          text += "+"
+        if (!data.members[i].last_save || time-data.members[i].last_save <= inactiveTime){
+          if (data.members[i].contribution < 0) {
+            text += "-";
+          } else if (data.members[i].contribution > 0) {
+            text += "+"
+          }
+          text += data.members[i].name + ": " + data.members[i].contribution + '\n';
         }
-        text += data.members[i].name + ": " + data.members[i].contribution + '\n';
       }
-      msg.channel.send("```DIFF\n" + text + `total: ${data.total}` + "```")
+      msg.channel.send(successMsg("```DIFF\n" + text + `total: ${data.total}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
+        .setFooter(`Updated ${Math.round((new Date().getTime()-lastUpdate)/1000)} seconds ago.`))
     } else {
-      msg.channel.send('This account is not being tracked!')
+      msg.channel.send(errorMsg('This account is not being tracked!'))
     }
   } else if (args[0] == "track") {
     user = getUser(msg.author.id);
     if (!user || !user.discordid) {
-      msg.channel.send('You haven\'t linked your account!')
+      msg.channel.send(errorMsg('You haven\'t linked your account!'))
       return;
     }
     profile = ''
@@ -448,9 +474,9 @@ client.on('message', async msg => {
         db.profiles.push(tempProfile);
         await dbs.query('insert into public."Profiles" (id, members, "lastUpdate", total) values ($1, $2, $3,$4) ON CONFLICT (id) DO UPDATE SET members=$2, "lastUpdate"=$3, total=$4',
         [tempProfile.id,tempProfile.members, tempProfile.lastUpdate, tempProfile.total])
-        msg.channel.send('Now tracking ' + user.profiles[profilenum].name)
+        msg.channel.send(successMsg('Now tracking ' + user.profiles[profilenum].name))
       } else {
-        msg.channel.send('This account is already being tracked!')
+        msg.channel.send(errorMsg('This account is already being tracked!'))
       }
     } else {
       let text = ''
@@ -461,13 +487,13 @@ client.on('message', async msg => {
           text += ", " + user.profiles[i].name
         }
       }
-      msg.channel.send('Invalid profile! Your profiles: ' + text)
+      msg.channel.send(errorMsg('Invalid profile! Your profiles: ' + text))
       return;
     }
   } else if (args[0] == "profiles") {
     user = getUser(msg.author.id);
     if (!user || !user.discordid) {
-      msg.channel.send('You haven\'t linked your account!')
+      msg.channel.send(errorMsg('You haven\'t linked your account!'))
       return;
     }
     let text = '';
@@ -478,14 +504,18 @@ client.on('message', async msg => {
         text += ", " + user.profiles[i].name
       }
     }
-    msg.channel.send("Your profiles: " + text);
+    msg.channel.send(successMsg("Your profiles: " + text));
   } else if (args[0] == "setprefix") {
+    if (msg.channel.type == "dm") {
+      msg.channel.send(errorMsg("You can't do that in a DM!"));
+      return;
+    }
     if (!msg.member.permissions.has("ADMINISTRATOR")) {
-      msg.channel.send("You don't have permission to do this!");
+      msg.channel.send(errorMsg("You don't have permission to do this!"));
       return
     }
     if (args.length <= 1) {
-      msg.channel.send("Please provide a prefix!");
+      msg.channel.send(errorMsg("Please provide a prefix!"));
       return;
     }
     var guild = {
@@ -504,18 +534,28 @@ client.on('message', async msg => {
       db.guilds.push(guild);
     }
     dbs.query('insert into public."Guilds" (id,prefix) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET prefix=$2', [guild.id, guild.prefix])
-    msg.channel.send(`Command prefix set to ${args[1]}`);
+    msg.channel.send(`Command prefix set to ${args[1]}`);w
   }else if(args[0] == "help") {
-    msg.channel.send("```help -- lists commands\n" +
-                    "link <username> -- will link your hypixel account to the bot\n" +
-                    "profiles -- lists profiles linked to your account\n" +
-                    "track <profile> -- to start tracking a profile\n" +
-                    "get <profile> -- will return the latest bank stats" +
-                    "setprefix <prefix> -- sets the bot's comamnd prefix" +
-                    "```")
+    var commands = [
+      'help -- lists commands',
+      'link <username> -- will link your hypixel account to the bot',
+      "track <profile> -- lists profiles linked to your account",
+      "get <profile> -- will return the latest bank stats",
+      "setprefix <prefix> -- sets the bot's command prefix for the server"
+    ]
+    var text = '```\n';
+    for (command in commands) {
+      text += pCommandPrefix + commands[command] + "\n";
+    }
+    text += "```"
+    const embed = new embedMessage()
+      .setTitle('Help menu')
+      .setColor(0x00FFFF)
+      .setDescription(text);
+    msg.channel.send(embed)
     return;
   } else {
-    msg.channel.send(`Invalid command! Run ${pCommandPrefix}help to get a list of commands.`)
+    msg.channel.send(errorMsg(`Invalid command! Run ${pCommandPrefix}help to get a list of commands.`))
   }
 })
 client.login(discordToken)
