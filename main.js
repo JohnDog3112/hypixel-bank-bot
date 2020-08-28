@@ -22,29 +22,6 @@ var port = string.substring(string.search("/"), -1);
 var string = string.substring(string.search("/")+1);
 var database = string;
 var lastUpdate = new Date().getTime();
-var thumbnails = {
-  apple: "https://i2.wp.com/ceklog.kindel.com/wp-content/uploads/2013/02/firefox_2018-07-10_07-50-11.png",
-  banana: "https://thumbs-prod.si-cdn.com/9UntNNzAE_MdZnUfB7h0OhRwX9o=/1072x720/filters:no_upscale()/https://public-media.si-cdn.com/filer/d5/24/d5243019-e0fc-4b3c-8cdb-48e22f38bff2/istock-183380744.jpg",
-  blueberry: "https://msu.edu/building-a-better-blueberry/img/bg-blueberry-5.png",
-  coconut: "https://assets.bonappetit.com/photos/57e1b4674caff61056fa86bd/master/pass/ttar_coconut_02_v_launch.jpg",
-  cucumber: "https://images.heb.com/is/image/HEBGrocery/000319432",
-  grapes: "https://dam.farmjournal.com/m/469f73418ba781e4/webimage-A2A71E65-EC01-418F-9DF30AB428B4F842.png",
-  kiwi: "https://www.eurofresh-distribution.com/sites/default/files/styles/news_and_events_1xs/public/field/image/kiwi%20flck%20ed%20jeanb.jpg?itok=uJju6jWw",
-  lemon: "https://www.kroger.com/product/images/large/front/0000000004053",
-  lime: "https://louperrine.com/wp-content/uploads/2017/04/Lime.jpg",
-  mango: "https://upload.wikimedia.org/wikipedia/commons/4/40/Mango_4.jpg",
-  orange: "https://www.marlerblog.com/files/2013/03/orange.jpg",
-  papaya: "https://cleananddelicious.com/wp-content/uploads/2016/09/Papaya-101CD-640x365.jpg",
-  peach: "https://ediblejersey.ediblecommunities.com/sites/default/files/images/article/peach-party1.jpg",
-  pear: "https://m.media-amazon.com/images/I/61OHAsXEmgL._SS500_.jpg",
-  pineapple: "https://images-na.ssl-images-amazon.com/images/I/71%2BqAJehpkL._SL1500_.jpg",
-  pomegranate: "https://www.gannett-cdn.com/-mm-/db6deefa3b505415f25ca56dafb51a521351f699/c=0-253-1904-1324/local/-/media/Nashville/2014/10/17/pomegranate.jpg?width=1904&height=1071&fit=crop&format=pjpg&auto=webp",
-  raspberry: "https://freshpoint.com/wp-content/uploads/raspberries3-e1576523550874.jpg",
-  strawberry: "https://www.thermofisher.com/blog/food/wp-content/uploads/sites/5/2015/08/single_strawberry__isolated_on_a_white_background.jpg",
-  tomato: "https://media.istockphoto.com/photos/tomato-isolated-on-white-background-picture-id466175630?k=6&m=466175630&s=612x612&w=0&h=fu_mQBjGJZIliOWwCR0Vf2myRvKWyQDsymxEIi8tZ38=",
-  watermelon: "https://m.media-amazon.com/images/I/91tCuetFu6L._AC_SS350_.jpg",
-  zucchini: "https://i5.walmartimages.com/asr/33be66a0-cbfc-4d37-bd3f-38b06cfe39d6_1.a3a9085102f3a8f794f5965143a363c1.jpeg?odnWidth=612&odnHeight=612&odnBg=ffffff"
-}
 loginDetails = {
   user: username,
   host: host,
@@ -60,6 +37,20 @@ db = {
   profiles: [],
   users: [],
   guilds: []
+}
+const jsf = require("jsonfile")
+const fs = require("fs")
+
+dbfile = __dirname + "/Thumbnails.json"
+thumbnails = {}
+try {
+    fs.lstatSync(dbfile);
+    thumbnails = jsf.readFileSync(dbfile);
+}
+catch (e) {
+    // File missing or invalid json
+    console.log("WARNING - Database file missing or corrupt - creating empty DB");
+    thumbnails = {};
 }
 async function test() {
   db.profiles = (await dbs.query('select * from public."Profiles"')).rows;
@@ -466,7 +457,7 @@ client.on('message', async msg => {
       }
       msg.channel.send(successMsg("```DIFF\n" + text + `total: ${Math.round(data.total*100)/100}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
         .setFooter(`Updated ${Math.round((new Date().getTime()-lastUpdate)/1000)} seconds ago.`)
-        .setThumbnail(thumbnails[args[1]]))
+        .setThumbnail(thumbnails[args[1]][Math.floor(thumbnails[args[1]].length*Math.random())]))
     } else {
       msg.channel.send(errorMsg('This account is not being tracked!'))
     }
