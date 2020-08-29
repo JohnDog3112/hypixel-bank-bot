@@ -446,7 +446,7 @@ client.on('message', async msg => {
       let text = ''
       let time = new Date().getTime()
       for (i in data.members) {
-        if (!data.members[i].last_save || time-data.members[i].last_save <= inactiveTime){
+        if (!data.members[i].last_save || time-data.members[i].last_save <= inactiveTime || (args[2] && args[2] == "all")){
           if (data.members[i].contribution < 0) {
             text += "-";
           } else if (data.members[i].contribution > 0) {
