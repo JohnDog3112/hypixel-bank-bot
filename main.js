@@ -530,7 +530,7 @@ client.on('message', async msg => {
         return;
       }
     } else {
-      account = user.linkedUsers[i];
+      account = user.linkedUsers[user.main];
     }
     for (i in account.profiles) {
       if (args.length >= 2 && account.profiles[i].name == args[1].toLowerCase()) {
