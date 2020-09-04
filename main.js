@@ -509,30 +509,30 @@ client.on('message', async msg => {
       return;
     }
     profile = ''
-    let fruit = 'banana'
-    for (i in user.linkedUsers){
-      if (user.linkedUsers[i].username == args[1].toLowerCase()) {
-        profiles = user.linkedUsers[i].profiles
-        for (j in profiles) {
-          if (profiles[j].name == args[2].toLowerCase()) {
-            profile = profiles[j].id
-            fruit = args[2].toLowerCase()
-            break
-          }
+    account = ''
+    if (args[2]) {
+      account = user.linkedUsers(user => user.username == args[2]);
+      loc = false
+      for (i in user.linkedUsers) {
+        if (user.linkedUsers[i].username == args[2]) {
+          loc = i
+          break;
         }
+      }
+      if (!id) {
+        msg.channel.send(errorMsg('Invalid username!'))
+        return;
+      }
+      account = loc
+    } else {
+      account = user.main;
+    }
+    for (i in user.linkedUsers[account].profiles) {
+      if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
+          profile = user.linkedUsers[user.main].profiles[i].id
         break
       }
-    }
-    if (profile == '' && user.main != 'false') {
-      console.log(user)
-      for (i in user.linkedUsers[user.main].profiles) {
-        if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
-          profile = user.linkedUsers[user.main].profiles[i].id
-          fruit = args[1].toLowerCase()
-          break
-        }
-      }
-    }
+    } 
     if (profile == '') {
       let text = ''
       for (i in user.profiles) {
@@ -569,7 +569,7 @@ client.on('message', async msg => {
       }
       msg.channel.send(successMsg("```DIFF\n" + text + `total: ${parseNumbers(round(data.total,100))}\ndiscrepancy: ${parseNumbers(round(data.total-totalCalculated,100))}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
         .setFooter(`Updated ${Math.round((new Date().getTime()-lastUpdate)/1000)} seconds ago.`)
-        .setThumbnail(thumbnails[fruit][Math.floor(thumbnails[fruit].length*Math.random())]))
+        .setThumbnail(thumbnails[args[1]][Math.floor(thumbnails[args[1]].length*Math.random())]))
     } else {
       msg.channel.send(errorMsg('This account is not being tracked!'))
     }
@@ -604,33 +604,36 @@ client.on('message', async msg => {
       msg.channel.send(errorMsg('You haven\'t linked your account!'))
       return;
     }
+    if (!user.main && !args[2]) {
+      msg.channel.send(errorMsg('You didn\'t have a main account and you didn\t specify an account!'))
+      return;
+    }
     profile = ''
     let profilenum = 0
-    profile = ''
-    let fruit = 'banana'
-    for (i in user.linkedUsers){
-      if (user.linkedUsers[i].username == args[1].toLowerCase()) {
-        profiles = user.linkedUsers[i].profiles
-        for (j in profiles) {
-          if (profiles[j].name == args[2].toLowerCase()) {
-            profile = profiles[j].id
-            fruit = args[2].toLowerCase()
-            break
-          }
+    account = ''
+    if (args[2]) {
+      account = user.linkedUsers(user => user.username == args[2]);
+      loc = false
+      for (i in user.linkedUsers) {
+        if (user.linkedUsers[i].username == args[2]) {
+          loc = i
+          break;
         }
+      }
+      if (!id) {
+        msg.channel.send(errorMsg('Invalid username!'))
+        return;
+      }
+      account = loc
+    } else {
+      account = user.main;
+    }
+    for (i in user.linkedUsers[account].profiles) {
+      if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
+          profile = user.linkedUsers[user.main].profiles[i].id
         break
       }
-    }
-    if (profile == '' && user.main != 'false') {
-      console.log(user)
-      for (i in user.linkedUsers[user.main].profiles) {
-        if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
-          profile = user.linkedUsers[user.main].profiles[i].id
-          fruit = args[1].toLowerCase()
-          break
-        }
-      }
-    }
+    } 
     if (profile != '') {
       let data = '';
       for (i in db.profiles) {
@@ -644,7 +647,7 @@ client.on('message', async msg => {
         db.profiles.push(tempProfile);
         await dbs.query('insert into public."Profiles" (id, members, "lastUpdate", total) values ($1, $2, $3,$4) ON CONFLICT (id) DO UPDATE SET members=$2, "lastUpdate"=$3, total=$4',
         [tempProfile.id,tempProfile.members, tempProfile.lastUpdate, tempProfile.total])
-        msg.channel.send(successMsg('Now tracking ' + fruit))
+        msg.channel.send(successMsg('Now tracking ' + args[1]))
       } else {
         msg.channel.send(errorMsg('This account is already being tracked!'))
       }
@@ -709,8 +712,8 @@ client.on('message', async msg => {
     var commands = [
       'help -- lists commands',
       'link <username> -- will link your hypixel account to the bot',
-      "track <profile> -- lists profiles linked to your account",
-      "get [username] <profile> -- will return the latest bank stats username is required if you haven't set main account",
+      "track <profile> [username]-- lists profiles linked to your account",
+      "get <profile> [username]-- will return the latest bank stats username is required if you haven't set main account",
       "setprefix <prefix> -- sets the bot's command prefix for the server",
       "set main <username> -- will set main account so you don't have to type your username everytime."
     ]
