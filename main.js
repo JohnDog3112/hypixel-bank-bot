@@ -511,34 +511,40 @@ client.on('message', async msg => {
     profile = ''
     account = ''
     if (args[2]) {
-      loc = false
       for (i in user.linkedUsers) {
         if (user.linkedUsers[i].username == args[2]) {
-          loc = i
+          profile = user.linkedUsers[i]
           break;
         }
       }
-      if (!loc) {
-        msg.channel.send(errorMsg('Invalid username!'))
+      if (profile == '') {
+        for (i in user.followedUsers) {
+          if (user.followedUsers[i].username == args[2]) {
+            profile = user.followedUsers[i]
+            break;
+          }
+        }
+      }
+      if (profile == '') {
+        msg.channel.send(errorMsg('Invalid profile!'))
         return;
       }
-      account = loc
     } else {
-      account = user.main;
+      account = user.linkedUsers[i];
     }
-    for (i in user.linkedUsers[account].profiles) {
-      if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
-          profile = user.linkedUsers[user.main].profiles[i].id
+    for (i in account.profiles) {
+      if (args.length >= 2 && account.profiles[i].name == args[1].toLowerCase()) {
+          profile = account.profiles[i].id
         break
       }
     } 
     if (profile == '') {
       let text = ''
-      for (i in user.profiles) {
+      for (i in account.profiles) {
         if (text == '') {
-          text = user.profiles[i].name
+          text = account.profiles[i].name
         } else {
-          text += ", " + user.profiles[i].name
+          text += ", " + account.profiles[i].name
         }
       }
       msg.channel.send(errorMsg('Invalid profile! Your profiles: ' + text))
@@ -611,32 +617,30 @@ client.on('message', async msg => {
     let profilenum = 0
     account = ''
     if (args[2]) {
-      loc = false
       for (i in user.linkedUsers) {
         if (user.linkedUsers[i].username == args[2]) {
-          loc = i
+          account = user.linkedUsers[i]
           break;
         }
       }
-      if (!loc) {
+      if (account == '') {
         msg.channel.send(errorMsg('Invalid username!'))
         return;
       }
-      account = loc
     } else {
-      account = user.main;
+      account = user.linkedUsers[user.main];
     }
-    for (i in user.linkedUsers[account].profiles) {
-      if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
-          profile = user.linkedUsers[user.main].profiles[i].id
+    for (i in account.profiles) {
+      if (args.length >= 2 && account.profiles[i].name == args[1].toLowerCase()) {
+          profile = account.profiles[i].id
         break
       }
     } 
     if (profile != '') {
       let data = '';
-      for (i in db.profiles) {
-        if (db.profiles[i].id == profile) {
-          data = db.profiles[i]
+      for (i in account.profiles) {
+        if (account.profiles[i].id == profile) {
+          data = account.profiles[i]
           break
         }
       }
@@ -651,11 +655,11 @@ client.on('message', async msg => {
       }
     } else {
       let text = ''
-      for (i in user.profiles) {
+      for (i in account.profiles) {
         if (text == '') {
-          text = user.profiles[i].name
+          text = account.profiles[i].name
         } else {
-          text += ", " + user.profiles[i].name
+          text += ", " + account.profiles[i].name
         }
       }
       msg.channel.send(errorMsg('Invalid profile! Your profiles: ' + text))
