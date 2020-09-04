@@ -8,7 +8,8 @@ var inactiveTime = 604800000;
 const client = new discord.Client();
 const apiKey = process.env.apiKey;
 const discordToken = process.env.discordToken;
-const commandPrefix = process.env.commandPrefix
+const commandPrefix = process.env.commandPrefix;
+var memberExpirationTime = process.env.memberExpirationTime;
 const {Pool} = require('pg')
 var string = process.env.DATABASE_URL;
 var string = string.substring("postgres://".length)
@@ -260,6 +261,17 @@ function checkProfile(i) {
 }
 function updateLoop() {
   return new Promise(async (resolve, reject) => {
+    let time = new Date().getTime()
+    for (i in newMembers) {
+      if (newMembers[i].time+(memberExpirationTime*1000) <= time) {
+        if (newMembers[i].channelID == "DM") {
+          client.users.fetch(i).then(channel => channel.send(errorMsg(`<@${i}> Linking expired!`))).catch(console.error)
+        } else {
+          client.channels.fetch(newMembers[i].channelID).then(channel => channel.send(errorMsg(`<@${i}> Linking expired!`))).catch(console.error)
+        }
+        delete newMembers[i];
+      }
+    }
     var profilesToDelete = []
     for (iter in db.profiles) {
       if (!(await checkProfile(iter))) {
@@ -361,6 +373,7 @@ client.on('ready', () => {
   client.user.setPresence({ activity: { name: '@ me for help!', type: "LISTENING"}, status: 'online' })
 });
 client.on('message', async msg => {
+  try {
   if (msg.author.bot) return;
   var message = msg.content.toLowerCase();
   let pCommandPrefix = commandPrefix;
@@ -385,26 +398,58 @@ client.on('message', async msg => {
       return;
     }
     var random = Math.floor(9999*Math.random())
+    var channelID = "DM"
+    if (msg.channel.type != "dm") {
+      channelID = msg.channel.id
+    }
     newMembers[msg.author.id] ={
       amount: random,
       time: new Date().getTime(),
       uuid: res[0].id,
-      username: args[1]
+      username: args[1],
+      channelID: channelID
     }
-    msg.channel.send(successMsg(`Deposit or withdraw ${random} on any profile and then do /confirm. Make sure that your banking api is on and that this is your account.`))
+    if (db.users.filter(user => user.discordid == msg.author.id).length <= 0) {
+      let member = {
+        discordid: msg.author.id,
+        linkedUsers: {},
+        followedUsers: {},
+        main: false,
+        lastAPICall: 0
+      }
+      await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
+      'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
+      [member.discordid, member.linkedUsers, member.followedUsers, member.main])
+      db.users.push(member)
+    }
+    msg.channel.send(successMsg(`Deposit or withdraw ${random} on any profile and then do /confirm. Make sure that your banking api is on and that this is your account.`).setFooter(`Will expire in ${memberExpirationTime/60} minutes!`))
   } else if (args[0] == "confirm") {
     if (!newMembers[msg.author.id]) {
       msg.channel.send(errorMsg('You have not done the first step! Do /link <mc username> and follow the instructions from there.'))
+      return;
+    }
+    if (newMembers[msg.author.id].time+(memberExpirationTime*1000) <= new Date().getTime()) {
+      delete newMembers[msg.author.id]
+      msg.channel.send(errorMsg("Linking expired!"))
+      return;
     }
     res = await getProfiles(newMembers[msg.author.id].uuid);
     if (!res.success) {
       msg.channel.send(errorMsg('Not a hypixel user!'))
       return;
     }
+    userID = 0;
+    for (i in db.users) {
+      if (db.users[i].discordid == msg.author.id) {
+        userID = i
+      }
+    }
+    if (db.users[userID].lastAPICall && db.users[userID].lastAPICall+(20*1000) <= new Date().getTime()) {
+      msg.channel.send(errorMsg("Too many API calls! Please wait a bit before your next request!"))
+    }
     const user = {
-      discordid: msg.author.id,
       profiles: [],
-      uuid: newMembers[msg.author.id].uuid
+      username: newMembers[msg.author.id].username.toLowerCase()
     }
     let text = ""
     var authenticated = false;
@@ -431,14 +476,22 @@ client.on('message', async msg => {
         }
       }
     }
+    db.users[userID].lastAPICall = new Date().getTime()
     if (!authenticated) {
       msg.channel.send(errorMsg('No transaction detected! Make sure your banking api is on if you did the transaction!'))
       return;
     }
+    db.users[userID].linkedUsers[newMembers[msg.author.id].uuid] = user
     delete newMembers[msg.author.id]
-    db.users = db.users.filter(user => user.discordid != msg.author.id)
-    db.users.push(user);
-    await dbs.query('insert into public."Users" (discordid, profiles) values ($1, $2) ON CONFLICT (discordid) DO UPDATE SET profiles=$2',[user.discordid, user.profiles])
+    let tmpUser = ""
+    tmpUser = db.users[userID]
+    if (tmpUser == "") {
+      console.error("No user profile found!")
+      return
+    }
+    await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
+    'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
+    [tmpUser.discordid, tmpUser.linkedUsers, tmpUser.followedUsers, tmpUser.main])
     msg.channel.send(successMsg("Success! Available profiles: " + text))
   }else if(args[0] == "get") {
     user = getUser(msg.author.id);
@@ -447,10 +500,28 @@ client.on('message', async msg => {
       return;
     }
     profile = ''
-    for (i in user.profiles) {
-      if (args.length >= 2 && user.profiles[i].name == args[1].toLowerCase()) {
-        profile = user.profiles[i].id
+    let fruit = 'banana'
+    for (i in user.linkedUsers){
+      if (user.linkedUsers[i].username == args[1].toLowerCase()) {
+        profiles = user.linkedUsers[i].profiles
+        for (j in profiles) {
+          if (profiles[j].name == args[2].toLowerCase()) {
+            profile = profiles[j].id
+            fruit = args[2].toLowerCase()
+            break
+          }
+        }
         break
+      }
+    }
+    if (profile == '' && user.main != 'false') {
+      console.log(user)
+      for (i in user.linkedUsers[user.main].profiles) {
+        if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
+          profile = user.linkedUsers[user.main].profiles[i].id
+          fruit = args[1].toLowerCase()
+          break
+        }
       }
     }
     if (profile == '') {
@@ -489,11 +560,36 @@ client.on('message', async msg => {
       }
       msg.channel.send(successMsg("```DIFF\n" + text + `total: ${Math.round(data.total*100)/100}\ndiscrepancy: ${Math.round((data.total-totalCalculated)*100)/100}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
         .setFooter(`Updated ${Math.round((new Date().getTime()-lastUpdate)/1000)} seconds ago.`)
-        .setThumbnail(thumbnails[args[1]][Math.floor(thumbnails[args[1]].length*Math.random())]))
+        .setThumbnail(thumbnails[fruit][Math.floor(thumbnails[fruit].length*Math.random())]))
     } else {
       msg.channel.send(errorMsg('This account is not being tracked!'))
     }
-  } else if (args[0] == "track") {
+  } else if (args[0] == "set") {
+    if (args[1] == "main") {
+      found = false
+      for (i in db.users) {
+        if (db.users[i].discordid == msg.author.id) {
+          for (j in db.users[i].linkedUsers) {
+            if (db.users[i].linkedUsers[j].username == args[2].toLowerCase()) {
+              db.users[i].main = j
+              tmpUser = db.users[i]
+              await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
+              'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
+              [tmpUser.discordid, tmpUser.linkedUsers, tmpUser.followedUsers, tmpUser.main])
+              found = true
+              break
+            }
+          }
+          break
+        }
+      }
+      if (found) {
+        msg.channel.send(successMsg("Main account set to " + args[2] + "!"))
+      } else {
+        msg.channel.send(errorMsg("Account not found!"))
+      }
+    }
+  }else if (args[0] == "track") {
     user = getUser(msg.author.id);
     if (!user || !user.discordid) {
       msg.channel.send(errorMsg('You haven\'t linked your account!'))
@@ -501,11 +597,29 @@ client.on('message', async msg => {
     }
     profile = ''
     let profilenum = 0
-    for (i in user.profiles) {
-      if (args.length >= 2 && user.profiles[i].name == args[1].toLowerCase()) {
-        profile = user.profiles[i].id
-        profilenum = i;
+    profile = ''
+    let fruit = 'banana'
+    for (i in user.linkedUsers){
+      if (user.linkedUsers[i].username == args[1].toLowerCase()) {
+        profiles = user.linkedUsers[i].profiles
+        for (j in profiles) {
+          if (profiles[j].name == args[2].toLowerCase()) {
+            profile = profiles[j].id
+            fruit = args[2].toLowerCase()
+            break
+          }
+        }
         break
+      }
+    }
+    if (profile == '' && user.main != 'false') {
+      console.log(user)
+      for (i in user.linkedUsers[user.main].profiles) {
+        if (args.length >= 2 && user.linkedUsers[user.main].profiles[i].name == args[1].toLowerCase()) {
+          profile = user.linkedUsers[user.main].profiles[i].id
+          fruit = args[1].toLowerCase()
+          break
+        }
       }
     }
     if (profile != '') {
@@ -521,7 +635,7 @@ client.on('message', async msg => {
         db.profiles.push(tempProfile);
         await dbs.query('insert into public."Profiles" (id, members, "lastUpdate", total) values ($1, $2, $3,$4) ON CONFLICT (id) DO UPDATE SET members=$2, "lastUpdate"=$3, total=$4',
         [tempProfile.id,tempProfile.members, tempProfile.lastUpdate, tempProfile.total])
-        msg.channel.send(successMsg('Now tracking ' + user.profiles[profilenum].name))
+        msg.channel.send(successMsg('Now tracking ' + fruit))
       } else {
         msg.channel.send(errorMsg('This account is already being tracked!'))
       }
@@ -587,8 +701,9 @@ client.on('message', async msg => {
       'help -- lists commands',
       'link <username> -- will link your hypixel account to the bot',
       "track <profile> -- lists profiles linked to your account",
-      "get <profile> -- will return the latest bank stats",
-      "setprefix <prefix> -- sets the bot's command prefix for the server"
+      "get [username] <profile> -- will return the latest bank stats username is required if you haven't set main account",
+      "setprefix <prefix> -- sets the bot's command prefix for the server",
+      "set main <username> -- will set main account so you don't have to type your username everytime."
     ]
     var text = '```\n';
     for (command in commands) {
@@ -604,5 +719,8 @@ client.on('message', async msg => {
   } else {
     msg.channel.send(errorMsg(`Invalid command! Run ${pCommandPrefix}help to get a list of commands.`))
   }
+} catch (error) {
+  console.error(error)
+}
 })
 client.login(discordToken)
