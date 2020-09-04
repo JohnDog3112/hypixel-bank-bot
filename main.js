@@ -511,7 +511,6 @@ client.on('message', async msg => {
     profile = ''
     account = ''
     if (args[2]) {
-      account = user.linkedUsers(user => user.username == args[2]);
       loc = false
       for (i in user.linkedUsers) {
         if (user.linkedUsers[i].username == args[2]) {
@@ -612,7 +611,6 @@ client.on('message', async msg => {
     let profilenum = 0
     account = ''
     if (args[2]) {
-      account = user.linkedUsers(user => user.username == args[2]);
       loc = false
       for (i in user.linkedUsers) {
         if (user.linkedUsers[i].username == args[2]) {
