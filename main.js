@@ -64,7 +64,7 @@ function getName(uuid) {
     var nameOptions = {
       host: 'sessionserver.mojang.com',
       path: '/session/minecraft/profile/' + uuid
-    }
+    } //test
     https.get(nameOptions, (response) => {
       var str = '';
 
