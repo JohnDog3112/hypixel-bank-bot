@@ -518,7 +518,7 @@ client.on('message', async msg => {
           break;
         }
       }
-      if (!id) {
+      if (!loc) {
         msg.channel.send(errorMsg('Invalid username!'))
         return;
       }
@@ -618,7 +618,7 @@ client.on('message', async msg => {
           break;
         }
       }
-      if (!id) {
+      if (!loc) {
         msg.channel.send(errorMsg('Invalid username!'))
         return;
       }
