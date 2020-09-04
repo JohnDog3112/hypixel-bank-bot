@@ -368,6 +368,15 @@ function successMsg(msg) {
     .setColor(0x00FF00)
     .setDescription(msg);
 }
+function round(number, place) {
+  return Math.round(number*place)/place
+}
+function parseNumbers(number) {
+  parts = number.toString().split('.')
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  return parts.join(".")
+}
+console.log(parseNumbers(12345678912))
 client.on('ready', () => {
   console.log('Ready to go!');
   client.user.setPresence({ activity: { name: '@ me for help!', type: "LISTENING"}, status: 'online' })
@@ -555,10 +564,10 @@ client.on('message', async msg => {
             text += "+"
           }
           totalCalculated += data.members[i].contribution
-          text += data.members[i].name + ": " + data.members[i].contribution + '\n';
+          text += data.members[i].name + ": " + parseNumbers(data.members[i].contribution) + '\n';
         }
       }
-      msg.channel.send(successMsg("```DIFF\n" + text + `total: ${Math.round(data.total*100)/100}\ndiscrepancy: ${Math.round((data.total-totalCalculated)*100)/100}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
+      msg.channel.send(successMsg("```DIFF\n" + text + `total: ${parseNumbers(round(data.total,100))}\ndiscrepancy: ${parseNumbers(round(data.total-totalCalculated,100))}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
         .setFooter(`Updated ${Math.round((new Date().getTime()-lastUpdate)/1000)} seconds ago.`)
         .setThumbnail(thumbnails[fruit][Math.floor(thumbnails[fruit].length*Math.random())]))
     } else {
