@@ -40,7 +40,6 @@ db = {
 }
 const jsf = require("jsonfile")
 const fs = require("fs")
-
 dbfile = __dirname + "/Thumbnails.json"
 thumbnails = {}
 try {
@@ -52,6 +51,7 @@ catch (e) {
     console.log("WARNING - Database file missing or corrupt - creating empty DB");
     thumbnails = {};
 }
+var newMembers = {}
 async function test() {
   db.profiles = (await dbs.query('select * from public."Profiles"')).rows;
   db.users = (await dbs.query('select * from public."Users"')).rows;
@@ -384,16 +384,30 @@ client.on('message', async msg => {
       msg.channel.send(errorMsg('Invalid name!'));
       return;
     }
-    res = await getProfiles(res[0].id);
+    var random = Math.floor(9999*Math.random())
+    newMembers[msg.author.id] ={
+      amount: random,
+      time: new Date().getTime(),
+      uuid: res[0].id,
+      username: args[1]
+    }
+    msg.channel.send(successMsg(`Deposit or withdraw ${random} on any profile and then do /confirm. Make sure that your banking api is on and that this is your account.`))
+  } else if (args[0] == "confirm") {
+    if (!newMembers[msg.author.id]) {
+      msg.channel.send(errorMsg('You have not done the first step! Do /link <mc username> and follow the instructions from there.'))
+    }
+    res = await getProfiles(newMembers[msg.author.id].uuid);
     if (!res.success) {
       msg.channel.send(errorMsg('Not a hypixel user!'))
       return;
     }
     const user = {
       discordid: msg.author.id,
-      profiles: []
+      profiles: [],
+      uuid: newMembers[msg.author.id].uuid
     }
     let text = ""
+    var authenticated = false;
     for (i in res.profiles) {
       const profile = {
         id: res.profiles[i].profile_id,
@@ -405,12 +419,28 @@ client.on('message', async msg => {
       } else {
         text += ", " + res.profiles[i].cute_name
       }
+      if (res.profiles[i].banking && res.profiles[i].banking.transactions) {
+        for (g in res.profiles[i].banking.transactions) {
+          var action = res.profiles[i].banking.transactions[g];
+          if (action.timestamp >  newMembers[msg.author.id].time) {
+            console.log(parseName(action.initiator_name).toLowerCase() == parseName(newMembers[msg.author.id].username).toLowerCase())
+            if (action.amount == newMembers[msg.author.id].amount && parseName(action.initiator_name).toLowerCase() == parseName(newMembers[msg.author.id].username).toLowerCase()) {
+              authenticated = true;
+            }
+          }
+        }
+      }
     }
+    if (!authenticated) {
+      msg.channel.send(errorMsg('No transaction detected! Make sure your banking api is on if you did the transaction!'))
+      return;
+    }
+    delete newMembers[msg.author.id]
     db.users = db.users.filter(user => user.discordid != msg.author.id)
     db.users.push(user);
     await dbs.query('insert into public."Users" (discordid, profiles) values ($1, $2) ON CONFLICT (discordid) DO UPDATE SET profiles=$2',[user.discordid, user.profiles])
     msg.channel.send(successMsg("Success! Available profiles: " + text))
-  } else if(args[0] == "get") {
+  }else if(args[0] == "get") {
     user = getUser(msg.author.id);
     if (!user || !user.discordid) {
       msg.channel.send(errorMsg('You haven\'t linked your account!'))
@@ -445,6 +475,7 @@ client.on('message', async msg => {
     if (data != '') {
       let text = ''
       let time = new Date().getTime()
+      let totalCalculated = 0;
       for (i in data.members) {
         if (!data.members[i].last_save || time-data.members[i].last_save <= inactiveTime){
           if (data.members[i].contribution < 0) {
@@ -452,10 +483,11 @@ client.on('message', async msg => {
           } else if (data.members[i].contribution > 0) {
             text += "+"
           }
+          totalCalculated += data.members[i].contribution
           text += data.members[i].name + ": " + data.members[i].contribution + '\n';
         }
       }
-      msg.channel.send(successMsg("```DIFF\n" + text + `total: ${Math.round(data.total*100)/100}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
+      msg.channel.send(successMsg("```DIFF\n" + text + `total: ${Math.round(data.total*100)/100}\ndiscrepancy: ${Math.round((data.total-totalCalculated)*100)/100}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
         .setFooter(`Updated ${Math.round((new Date().getTime()-lastUpdate)/1000)} seconds ago.`)
         .setThumbnail(thumbnails[args[1]][Math.floor(thumbnails[args[1]].length*Math.random())]))
     } else {
