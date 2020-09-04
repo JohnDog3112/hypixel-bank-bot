@@ -513,19 +513,19 @@ client.on('message', async msg => {
     if (args[2]) {
       for (i in user.linkedUsers) {
         if (user.linkedUsers[i].username == args[2]) {
-          profile = user.linkedUsers[i]
+          account = user.linkedUsers[i]
           break;
         }
       }
       if (profile == '') {
         for (i in user.followedUsers) {
           if (user.followedUsers[i].username == args[2]) {
-            profile = user.followedUsers[i]
+            account = user.followedUsers[i]
             break;
           }
         }
       }
-      if (profile == '') {
+      if (account == '') {
         msg.channel.send(errorMsg('Invalid profile!'))
         return;
       }
