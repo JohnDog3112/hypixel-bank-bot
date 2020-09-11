@@ -537,7 +537,7 @@ client.on('message', async msg => {
         lastAPICall: 0
       }
       await dbs.query('insert into public."Users" (discordid, "linkedUsers", main) values ($1, $2, $3)'+
-      'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"main=$3',
+      'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,main=$3',
       [member.discordid, member.linkedUsers, member.main])
       db.users.push(member)
     }
