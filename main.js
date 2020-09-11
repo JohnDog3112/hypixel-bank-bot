@@ -53,10 +53,17 @@ catch (e) {
     thumbnails = {};
 }
 var newMembers = {}
+var players = {}
 async function test() {
   db.profiles = (await dbs.query('select * from public."Profiles"')).rows;
   db.users = (await dbs.query('select * from public."Users"')).rows;
+  for (i in db.users) {
+    for (j in db.users[i].linkedUsers) {
+      players[j] = db.users[i].linkedUsers[j]
+    }
+  }
   db.guilds = (await dbs.query('select * from public."Guilds"')).rows;
+
 }
 test();
 function getName(uuid) {
@@ -272,12 +279,19 @@ function updateLoop() {
         delete newMembers[i];
       }
     }
+    let tmpPlayers = {}
     var profilesToDelete = []
     for (iter in db.profiles) {
       if (!(await checkProfile(iter))) {
         profilesToDelete.push(iter)
       }
     }
+    for (i in db.users) {
+      for (j in db.users[i].linkedUsers) {
+        tmpPlayers[j] = db.users[i].linkedUsers[j]
+      }
+    }
+    players = tmpPlayers;
     for (iter in profilesToDelete) {
       await dbs.query('delete from public."Profiles" where id=$1', [db.profiles[profilesToDelete[iter]].id])
       db.profiles.splice(profilesToDelete[iter],1);
@@ -376,7 +390,93 @@ function parseNumbers(number) {
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",")
   return parts.join(".")
 }
-console.log(parseNumbers(12345678912))
+function toRomanNumeral(num, level) {
+  num = Math.round(num)
+  let negative = num < 0
+  if (num < 0) {
+    num = Math.abs(num)
+  }
+  let numerals = []
+  let levels = []
+  if (num >= 3000) {
+    levels = toRomanNumeral(Math.floor(num/1000),true)
+    num -= Math.floor(num/1000)*1000
+  }
+  while (num != 0) {
+    if (num >= 4000) {
+      numerals.push("(IV)")
+      num -= 4000;
+    } else if (num >= 1000) {
+      numerals.push("M")
+      num -= 1000
+    } else if (num >= 900) {
+      numerals.push("CM")
+      num -= 900
+    } else if (num >= 500) {
+      numerals.push("D")
+      num -= 500;
+    } else if (num >= 400) {
+      numerals.push("CD")
+      num -= 400;
+    } else if (num >= 100) {
+      numerals.push("C")
+      num -= 100
+    } else if (num >= 90) {
+      numerals.push("XC")
+      num -= 90
+    } else if (num >= 50) {
+      numerals.push("L")
+      num -= 50;
+    } else if (num >= 40) {
+      numerals.push("XL")
+      num -= 40
+    } else if (num >= 10) {
+      numerals.push("X")
+      num -= 10
+    } else if (num >= 9) {
+      numerals.push("IX")
+      num -= 9;
+    } else if (num >= 5) {
+      numerals.push("V")
+      num -= 5;
+    } else if (num >= 4) {
+      numerals.push("IV")
+      num -= 4;
+    } else if (num >= 1) {
+      numerals.push("I")
+      num -= 1;
+    }
+  }
+  levels.push(numerals)
+  if (!level) {
+    let compact = ""
+    if (negative) {
+      compact = "-"
+    }
+    let levelsToRemove = []
+    for (i in levels) {
+      if (levels.length != Number(i)+1) {
+        lastChar = levels[i][levels[i].length-1]
+        while (lastChar == "I") {
+          levels[i].pop()
+          levels[(Number(i)+1)].unshift("M")
+          lastChar = levels[i][levels[i].length-1]
+        }
+      }
+      if (levels[i].length == 0) {
+        levelsToRemove.push(i)
+      }
+    }
+    for (i in levelsToRemove) {
+      levels.splice(levelsToRemove[i]-i,1)
+    }
+    for (i in levels) {
+      compact += "(".repeat(levels.length-i-1)+levels[i].join("")+")".repeat(levels.length-i-1)
+    }
+    return compact
+  }
+  return levels
+}
 client.on('ready', () => {
   console.log('Ready to go!');
   client.user.setPresence({ activity: { name: 'your cries for help', type: "LISTENING"}, status: 'online' })
@@ -433,13 +533,12 @@ client.on('message', async msg => {
       let member = {
         discordid: msg.author.id,
         linkedUsers: {},
-        followedUsers: {},
         main: false,
         lastAPICall: 0
       }
-      await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
-      'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
-      [member.discordid, member.linkedUsers, member.followedUsers, member.main])
+      await dbs.query('insert into public."Users" (discordid, "linkedUsers", main) values ($1, $2, $3)'+
+      'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"main=$3',
+      [member.discordid, member.linkedUsers, member.main])
       db.users.push(member)
     }
     msg.channel.send(successMsg(`Deposit or withdraw ${random} on any profile and then do /confirm. Make sure that your banking api is on and that this is your account.`).setFooter(`Will expire in ${memberExpirationTime/60} minutes!`))
@@ -509,141 +608,11 @@ client.on('message', async msg => {
       console.error("No user profile found!")
       return
     }
-    await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
-    'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
-    [tmpUser.discordid, tmpUser.linkedUsers, tmpUser.followedUsers, tmpUser.main])
+    await dbs.query('insert into public."Users" (discordid, "linkedUsers", main) values ($1, $2, $3)'+
+    'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,main=$3',
+    [tmpUser.discordid, tmpUser.linkedUsers, tmpUser.main])
     msg.channel.send(successMsg("Success! Available profiles: " + text))
-  }else if (args[0] == "stalk") {
-    user = getUser(msg.author.id)
-    lastRes = ''
-    found = 0
-    username = ''
-    serverName = ''
-    nickname = ''
-    msg.channel.members.each(user => {
-      if (user.user.username.toLowerCase().startsWith(args[1]) || (user.nickname && user.nickname.toLowerCase().startsWith(args[1])) || user.user.id == args[1]) {
-        console.log(user.user.username)
-        found += 1;
-        lastRes = user.user.id
-        username = user.user.username
-        serverName = user.user.username
-        nickname = user.nickname
-        if (user.nickname) {
-          serverName = user.nickname
-        }
-      }
-    })
-    if (found != 1) {
-      msg.channel.send(errorMsg('Invalid discord user!'));
-      return;
-    }
-    userData = ''
-    for (i in db.users) {
-      if (db.users[i].discordid == lastRes) {
-        userData = db.users[i]
-        break;
-      }
-    }
-    if (userData == '' || Object.keys(userData).length == 0) {
-      msg.channel.send(errorMsg("This user doesn't have any linked accounts!"));
-      return;
-    }
-    var clonedUserData = Object.assign({}, userData.linkedUsers)
-    clonedUserData.username = username
-    clonedUserData.nickname = nickname
-    console.log(nickname)
-    user.followedUsers[lastRes] = clonedUserData;
-    msg.channel.send(successMsg(`Now stalking ${serverName}!`))
-    await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
-    'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
-    [user.discordid, user.linkedUsers, user.followedUsers, user.main])
-  }else if (args[0] == "courtorder") {
-    user = getUser(msg.author.id)
-    lastRes = ''
-    found = 0
-    username = ''
-    for (i in user.followedUsers) {
-      let folUser = user.followedUsers[i]
-      if (folUser.username.toLowerCase().startsWith(args[1]) || (folUser.nickname && folUser.nickname.toLowerCase().startsWith(args[1])) || i == args[1]) {
-        lastRes = i;
-        username = folUser.username;
-        found++;
-        if (folUser.nickname) {
-          username = folUser.nickname
-        }
-      }
-    }
-    if (found != 1 || !user.followedUsers[lastRes]) {
-      msg.channel.send(errorMsg('Invalid discord user!'));
-      return;
-    }
-    delete user.followedUsers[lastRes];
-    msg.channel.send(successMsg(`${username} got a restricting order!`))
-    await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
-    'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
-    [user.discordid, user.linkedUsers, user.followedUsers, user.main])
-  } else if (args[0] == "victims") {
-    user = getUser(msg.author.id)
-    text = ''
-    for (i in user.followedUsers) {
-      if (user.followedUsers[i].nickname) {
-        text += `${user.followedUsers[i].nickname} (${user.followedUsers[i].username})`
-      } else {
-        text += `${user.followedUsers[i].username}`
-      }
-      if (modifiers["-id"]) {
-        text += ": " + i
-      }
-      text += "\n"
-    }
-    msg.channel.send(successMsg(text).setTitle("Your victims"))
-  } else if (args[0] == "accounts") {
-    user = getUser(msg.author.id)
-    if (args[1]) {
-      lastRes = ''
-      serverName = ''
-      found = 0
-      for (i in user.followedUsers) {
-        folUser = user.followedUsers[i];
-        if (folUser.username.toLowerCase().startsWith(args[1]) || (folUser.nickname && folUser.nickname.toLowerCase().startsWith(args[1])) || i == args[1]) {
-          found++;
-          lastRes = folUser;
-          serverName = folUser.username;
-          if (folUser.nickname) {
-            serverName = folUser.nickname
-          }
-        }
-      }
-      if (found != 1) {
-        msg.channel.send(errorMsg('Invalid account!'))
-        return;
-      }
-      text = ''
-      for (i in lastRes) {
-        if (i != "username" && i != "nickname") {
-          text += lastRes[i].username + ", "
-        }
-      }
-      text = text.substring(0,text.length-2)
-      msg.channel.send(successMsg(`profiles: ${text}`).setTitle(serverName + "'s profiles'"))
-      return
-    }
-    text = "Linked profiles: "
-    for (i in user.linkedUsers) {
-      text += user.linkedUsers[i].username + ", "
-    }
-    text = text.substring(0,text.length-2)
-    text += "\n Followed users: "
-    for (i in user.followedUsers) {
-      if (user.followedUsers[i].nickname) {
-        text += `${user.followedUsers[i].nickname} (${user.followedUsers[i].username}), `
-      } else {
-        text += `${user.followedUsers[i].username}, `
-      }
-    }
-    text = text.substring(0,text.length-2)
-    msg.channel.send(successMsg(text).setTitle("Your accounts"))
-  }else if(args[0] == "get") {
+  } else if(args[0] == "get") {
     user = getUser(msg.author.id);
     if (!user || !user.discordid) {
       msg.channel.send(errorMsg('You haven\'t linked your account!'))
@@ -658,13 +627,11 @@ client.on('message', async msg => {
           break;
         }
       }
-      if (profile == '') {
-        for (i in user.followedUsers) {
-          for (j in user.followedUsers[i]) {
-            if (user.followedUsers[i][j].username == args[2]) {
-              account = user.followedUsers[i][j]
-              break;
-            }
+      if (account == '') {
+        for (i in players) {
+          if (players[i].username == args[2]) {
+            account = players[i];
+            break;
           }
         }
       }
@@ -690,7 +657,7 @@ client.on('message', async msg => {
           text += ", " + account.profiles[i].name
         }
       }
-      msg.channel.send(errorMsg('Invalid profile! Your profiles: ' + text))
+      msg.channel.send(errorMsg(`Invalid profile! ${account.username}'s profiles: ` + text))
       return;
     }
     let data = '';
@@ -712,10 +679,22 @@ client.on('message', async msg => {
             text += "+"
           }
           totalCalculated += data.members[i].contribution
-          text += data.members[i].name + ": " + parseNumbers(data.members[i].contribution) + '\n';
+          if (modifiers["-r"] || modifiers["-roman"]) {
+            text += data.members[i].name + ": " + toRomanNumeral(data.members[i].contribution) + '\n';
+          } else {
+            text += data.members[i].name + ": " + parseNumbers(data.members[i].contribution) + '\n';
+          }
+
         }
       }
-      msg.channel.send(successMsg("```DIFF\n" + text + `total: ${parseNumbers(round(data.total,100))}\ndiscrepancy: ${parseNumbers(round(data.total-totalCalculated,100))}` + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
+      if (modifiers["-r"] || modifiers["-roman"]) {
+        text += "total: " + toRomanNumeral(data.total)
+        text += "\ndiscrepancy: " + toRomanNumeral(data.total-totalCalculated)
+      } else {
+        text += "total: " + parseNumbers(round(data.total,100))
+        text += "\ndiscrepancy: " + parseNumbers(round(data.total-totalCalculated,100))
+      }
+      msg.channel.send(successMsg("```DIFF\n" + text + "```").setTitle(args[1][0].toUpperCase() + args[1].slice(1) + "'s Banking Stats")
         .setFooter(`Updated ${Math.round((new Date().getTime()-lastUpdate)/1000)} seconds ago.`)
         .setThumbnail(thumbnails[args[1]][Math.floor(thumbnails[args[1]].length*Math.random())]))
     } else {
@@ -730,9 +709,9 @@ client.on('message', async msg => {
             if (db.users[i].linkedUsers[j].username == args[2].toLowerCase()) {
               db.users[i].main = j
               tmpUser = db.users[i]
-              await dbs.query('insert into public."Users" (discordid, "linkedUsers", "followedUsers", main) values ($1, $2, $3, $4)'+
-              'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,"followedUsers"=$3,main=$4',
-              [tmpUser.discordid, tmpUser.linkedUsers, tmpUser.followedUsers, tmpUser.main])
+              await dbs.query('insert into public."Users" (discordid, "linkedUsers", main) values ($1, $2, $3)'+
+              'ON CONFLICT (discordid) DO UPDATE SET "linkedUsers"=$2,main=$3',
+              [tmpUser.discordid, tmpUser.linkedUsers, tmpUser.main])
               found = true
               break
             }
@@ -873,7 +852,7 @@ client.on('message', async msg => {
           text += ", " + account.profiles[i].name
         }
       }
-      msg.channel.send(errorMsg('Invalid profile! Your profiles: ' + text))
+      msg.channel.send(errorMsg(`Invalid profile! ${account.username}'s profiles: ` + text))
       return;
     }
   } else if (args[0] == "profiles") {
@@ -892,17 +871,15 @@ client.on('message', async msg => {
         }
       }
       if (account == '') {
-        for (i in user.followedUsers) {
-          for (j in user.followedUsers[i]) {
-            if (user.followedUsers[i][j].username == args[1]) {
-              account = user.followedUsers[i][j]
-              break;
-            }
+        for (i in players) {
+          if (players[i].username == args[1]) {
+            account = players[i]
+            break;
           }
         }
       }
       if (account == '') {
-        msg.channel.send(errorMsg('Invalid discord user!'))
+        msg.channel.send(errorMsg('This user\'s account isn\'t linked to a discord account!'))
         return;
       }
     } else if (!user.main || !user.linkedUsers[user.main]) {
@@ -915,7 +892,7 @@ client.on('message', async msg => {
       text += account.profiles[i].name + ", "
     }
     text = text.substring(0,text.length-2)
-    msg.channel.send(successMsg("Your profiles: " + text));
+    msg.channel.send(successMsg(account.username + "'s profiles: " + text));
   } else if (args[0] == "setprefix") {
     if (msg.channel.type == "dm") {
       msg.channel.send(errorMsg("You can't do that in a DM!"));
@@ -955,9 +932,6 @@ client.on('message', async msg => {
       "profiles [username] -- returns an mc account's profiles",
       "setprefix <prefix> -- sets the bot's command prefix for the server",
       "set main <username> -- will set main account so you don't have to type your username everytime.",
-      "stalk <discord username> -- allows you to get bank stats of that users profiles",
-      "accounts [mc username] -- will list all connected users, or will list a discord user's mc accounts",
-      "courtorder <discord username> -- will stop stalking a user",
       "transfer <amount> <recipient> <profile> [account] -- will transfer coins from your account to another person's account"
     ]
     var text = '```\n';
