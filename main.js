@@ -509,7 +509,7 @@ client.on('message', async msg => {
     }
   }
   for (i in modLoc) {
-    args.splice(modLoc[i],1)
+    args.splice(Number(modLoc[i])-i,1)
   }
   if (args[0] == "link") {
     let res = await getUUID(args[1]);
